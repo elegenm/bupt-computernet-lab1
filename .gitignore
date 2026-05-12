@@ -1,0 +1,20 @@
+# Visual Studio user/cache/build outputs
+.vs/
+Debug/
+Release/
+x64/
+x86/
+*.obj
+*.pdb
+*.ilk
+*.idb
+*.tlog
+*.lastbuildstate
+*.user
+
+# Local editor settings
+.vscode/
+
+# OS files
+Thumbs.db
+Desktop.ini
