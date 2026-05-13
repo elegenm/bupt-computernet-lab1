@@ -319,7 +319,7 @@ int main(int argc, char **argv)
                  * 所以从协议语义上，请求重传它最合理。
                  */
                 if (no_nak)
-                    send_nak_frame(frame_expected);
+                    send_nak_frame(frame_expected);//每次收到乱序帧，都会要求重发期待帧，为了避免，使用一个标记来避免重发nak
                 break;
             }
 

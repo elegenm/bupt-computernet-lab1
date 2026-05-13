@@ -628,23 +628,460 @@ CRC32 具有较强的差错检测能力，能够检测：
 
 ## 9 个人分工说明
 
-若按个人提交形式整理，可写为：
+本实验由王哲、黄严、李俊泉三位同学协作完成，分工如下：
 
-> 本实验由本人独立完成。主要工作包括阅读实验指导书与平台代码，分析 `protocol.c` 与 `protocol.h` 提供的事件驱动接口，完成 `datalink_gobackn.c` 与 `datalink_selective.c` 的设计和调试，交叉编译并记录实验数据，最终撰写实验报告。
+- 王哲：承担主要工作。负责整体方案设计与任务统筹，完成 `Go-Back-N` 与 `Selective Repeat` 两种协议的核心实现，重点处理发送窗口、接收窗口、序号回绕、ACK/NAK 逻辑、超时重传与缓存管理等关键模块；同时负责主要调试、交叉编译验证、实验数据整理以及报告主体撰写。
+- 黄严：负责实验平台与接口层面的辅助分析，参与 `protocol.c`、`protocol.h`、`datalink.h` 的阅读和实验环境梳理；协助完成测试命令整理、运行结果记录、部分结果分析以及报告中实验环境与运行方式相关内容的补充。
+- 李俊泉：负责资料整理与结果复核，参与协议流程图、实现思路和对比分析的整理；协助检查 `GBN` 与 `SR` 在不同误码率场景下的输出结果，补充附录、源码排版以及报告格式细节的校对。
 
-若课程要求按真实完成情况填写，请替换为你的实际分工说明。
 
 ## 10 附录
 
-### 附录 1 源码文件清单
+### 附录 1 完整源码（精简注释版）
 
-- [Lab1-Windows-VS2017/datalink_gobackn.c](/Users/reiayanami/Project/computernet-lab1/bupt-computernet-lab1/Lab1-Windows-VS2017/datalink_gobackn.c:1)
-- [Lab1-Windows-VS2017/datalink_selective.c](/Users/reiayanami/Project/computernet-lab1/bupt-computernet-lab1/Lab1-Windows-VS2017/datalink_selective.c:1)
-- [Lab1-Windows-VS2017/protocol.c](/Users/reiayanami/Project/computernet-lab1/bupt-computernet-lab1/Lab1-Windows-VS2017/protocol.c:1)
-- [Lab1-Windows-VS2017/protocol.h](/Users/reiayanami/Project/computernet-lab1/bupt-computernet-lab1/Lab1-Windows-VS2017/protocol.h:1)
-- [Lab1-Windows-VS2017/datalink.h](/Users/reiayanami/Project/computernet-lab1/bupt-computernet-lab1/Lab1-Windows-VS2017/datalink.h:1)
+以下源码与提交工程中的 `datalink_gobackn.c`、`datalink_selective.c` 逻辑一致，仅对附录展示时的注释进行了压缩，便于在报告中连续阅读。
 
-若老师要求“完整源代码必须跟在 PDF 后”，建议导出前把 `datalink_selective.c` 和 `datalink_gobackn.c` 全文追加到附录末尾。
+#### 附录 1.1 GBN 源码
+
+```c
+#include <stdio.h>
+#include <string.h>
+
+#include "protocol.h"
+#include "datalink.h"
+
+/* GBN：累计确认、按序接收、整窗重传。 */
+
+#define MAX_SEQ      7
+
+#define WINDOW_SIZE  MAX_SEQ
+#define DATA_TIMER   2000
+
+struct FRAME {
+    unsigned char kind;             
+    unsigned char ack;              
+    unsigned char seq;              
+    unsigned char data[PKT_LEN];
+    unsigned int  padding;          
+};
+
+/* 发送窗口：[ack_expected, next_frame_to_send)。 */
+static unsigned char ack_expected = 0;        
+static unsigned char next_frame_to_send = 0;  
+static unsigned char nbuffered = 0;           
+
+/* 接收端只接收当前按序到达的下一帧。 */
+static unsigned char frame_expected = 0;      
+
+static unsigned char out_buf[MAX_SEQ + 1][PKT_LEN]; 
+
+/* 物理层当前是否还能继续发送一帧。 */
+static int phl_ready = 0;
+
+static void inc(unsigned char *num)
+{
+    *num = (*num + 1) % (MAX_SEQ + 1);
+}
+
+/* 判断 b 是否落在循环区间 [a, c) 内。 */
+static int between(unsigned char a, unsigned char b, unsigned char c)
+{
+    return ((a <= b) && (b < c)) ||
+           ((c < a) && (a <= b)) ||
+           ((b < c) && (c < a));
+}
+
+/* 确认最近一个已按序交付给网络层的帧。 */
+static unsigned char latest_ack(void)
+{
+    return (frame_expected + MAX_SEQ) % (MAX_SEQ + 1);
+}
+
+/* 追加 CRC，然后交给实验平台发送。 */
+static void put_frame(unsigned char *frame, int len)
+{
+    *(unsigned int *)(frame + len) = crc32(frame, len);
+    send_frame(frame, len + 4);
+    phl_ready = 0;
+}
+
+/* 发送一个 DATA 帧，并启动该帧定时器。 */
+static void send_data_frame(unsigned char frame_nr)
+{
+    struct FRAME s;
+
+    s.kind = FRAME_DATA;
+    s.seq = frame_nr;
+    s.ack = latest_ack();
+    memcpy(s.data, out_buf[frame_nr], PKT_LEN);
+
+    dbg_frame("Send DATA %d %d, ID %d\n", s.seq, s.ack, *(short *)s.data);
+
+    put_frame((unsigned char *)&s, 3 + PKT_LEN);
+    start_timer(frame_nr, DATA_TIMER);
+}
+
+/* 当前没有捎带数据时，发送纯 ACK 帧。 */
+static void send_ack_frame(void)
+{
+    struct FRAME s;
+
+    s.kind = FRAME_ACK;
+    s.ack = latest_ack();
+
+    dbg_frame("Send ACK  %d\n", s.ack);
+
+    put_frame((unsigned char *)&s, 2);
+}
+
+/* GBN 超时规则：重传整个未确认窗口。 */
+static void resend_window(void)
+{
+    unsigned char i;
+    unsigned char frame_nr;
+
+    frame_nr = ack_expected;
+    for (i = 0; i < nbuffered; i++) {
+        send_data_frame(frame_nr);
+        inc(&frame_nr);
+    }
+}
+
+int main(int argc, char **argv)
+{
+    int event, arg;
+    struct FRAME f;
+    int len = 0;
+
+    protocol_init(argc, argv);
+    lprintf("Go-Back-N sliding window, build: " __DATE__"  "__TIME__"\n");
+    lprintf("MAX_SEQ=%d, WINDOW_SIZE=%d\n", MAX_SEQ, WINDOW_SIZE);
+
+    
+    disable_network_layer();
+
+    for (;;) {
+        event = wait_for_event(&arg);
+
+        switch (event) {
+        case NETWORK_LAYER_READY:
+            /* 取一个分组，放入缓存，发送后推进发送窗口右边界。 */
+            
+            get_packet(out_buf[next_frame_to_send]);
+            nbuffered++;
+            send_data_frame(next_frame_to_send);
+            inc(&next_frame_to_send);
+            break;
+
+        case PHYSICAL_LAYER_READY:
+            /* 物理层重新提供了一次发送机会。 */
+            
+            phl_ready = 1;
+            break;
+
+        case FRAME_RECEIVED:
+            /* 收到一帧，先校验 CRC，再处理其中的 DATA/ACK 影响。 */
+            
+            len = recv_frame((unsigned char *)&f, sizeof f);
+            
+            if (len < 5 || crc32((unsigned char *)&f, len) != 0) {
+                dbg_event("**** Receiver Error, Bad CRC Checksum\n");
+                break;
+            }
+
+            if (f.kind == FRAME_ACK)
+                dbg_frame("Recv ACK  %d\n", f.ack);
+
+            if (f.kind == FRAME_DATA) {
+                /* DATA 更新接收状态；其中捎带的 ACK 更新发送状态。 */
+                dbg_frame("Recv DATA %d %d, ID %d\n", f.seq, f.ack, *(short *)f.data);
+
+                
+                if (f.seq == frame_expected) {
+                    put_packet(f.data, len - 7);
+                    inc(&frame_expected);
+                }
+                send_ack_frame();
+            }
+
+            
+            /* 累计 ACK 可能一次推动窗口跨过多个帧。 */
+            while (nbuffered > 0 && between(ack_expected, f.ack, next_frame_to_send)) {
+                nbuffered--;
+                stop_timer(ack_expected);
+                inc(&ack_expected);
+            }
+            break;
+
+        case DATA_TIMEOUT:
+            /* 任一帧超时，都要把当前窗口整段重发。 */
+            
+            dbg_event("---- DATA %d timeout\n", arg);
+            resend_window();
+            break;
+        }
+
+        
+        /* 仅当发送窗口未满时，才重新打开网络层。 */
+        if (nbuffered < WINDOW_SIZE && phl_ready)
+            enable_network_layer();
+        else
+            disable_network_layer();
+    }
+}
+```
+
+#### 附录 1.2 SR 源码
+
+```c
+#include <stdio.h>
+#include <string.h>
+
+#include "protocol.h"
+#include "datalink.h"
+
+/* SR：乱序缓存、逐帧确认、逐帧重传。 */
+
+#define MAX_SEQ      7
+
+#define WINDOW_SIZE  ((MAX_SEQ + 1) / 2)
+#define DATA_TIMER   2000
+
+struct FRAME {
+    unsigned char kind;     
+    unsigned char ack;      
+    unsigned char seq;      
+    unsigned char data[PKT_LEN];
+    unsigned int  padding;  
+};
+
+/* 发送窗口，以及逐帧确认状态。 */
+static unsigned char ack_expected = 0;
+static unsigned char next_frame_to_send = 0;
+static unsigned char nbuffered = 0;
+static unsigned char out_buf[MAX_SEQ + 1][PKT_LEN];
+static unsigned char acked[MAX_SEQ + 1];
+
+/* 接收窗口：[frame_expected, too_far)。 */
+static unsigned char frame_expected = 0;
+static unsigned char too_far = WINDOW_SIZE;
+static unsigned char in_buf[MAX_SEQ + 1][PKT_LEN];
+static unsigned char arrived[MAX_SEQ + 1];
+/* 避免对同一个缺口重复发送 NAK。 */
+static int no_nak = 1;
+
+/* 物理层当前是否还能继续发送一帧。 */
+static int phl_ready = 0;
+
+static void inc(unsigned char *num)
+{
+    *num = (*num + 1) % (MAX_SEQ + 1);
+}
+
+/* 判断 b 是否落在循环区间 [a, c) 内。 */
+static int between(unsigned char a, unsigned char b, unsigned char c)
+{
+    return ((a <= b) && (b < c)) ||
+           ((c < a) && (a <= b)) ||
+           ((b < c) && (c < a));
+}
+
+/* 判断某帧是否属于当前接收窗口。 */
+static int in_receive_window(unsigned char seq)
+{
+    return between(frame_expected, seq, too_far);
+}
+
+/* 判断某帧是否是上一窗口中的旧重复帧。 */
+static int in_previous_window(unsigned char seq)
+{
+    unsigned char low = (frame_expected + MAX_SEQ + 1 - WINDOW_SIZE) % (MAX_SEQ + 1);
+
+    return between(low, seq, frame_expected);
+}
+
+/* 追加 CRC，然后交给实验平台发送。 */
+static void put_frame(unsigned char *frame, int len)
+{
+    *(unsigned int *)(frame + len) = crc32(frame, len);
+    send_frame(frame, len + 4);
+    phl_ready = 0;
+}
+
+/* 确认某一个具体序号的帧。 */
+static void send_ack_frame(unsigned char ack_nr)
+{
+    struct FRAME s;
+
+    s.kind = FRAME_ACK;
+    s.ack = ack_nr;
+
+    dbg_frame("Send ACK  %d\n", s.ack);
+
+    put_frame((unsigned char *)&s, 2);
+}
+
+/* 请求对方重传当前缺失的那一帧。 */
+static void send_nak_frame(unsigned char nak_nr)
+{
+    struct FRAME s;
+
+    s.kind = FRAME_NAK;
+    s.ack = nak_nr;
+    no_nak = 0;
+
+    dbg_frame("Send NAK  %d\n", s.ack);
+
+    put_frame((unsigned char *)&s, 2);
+}
+
+/* 发送一个 DATA 帧，并启动它自己的定时器。 */
+static void send_data_frame(unsigned char frame_nr)
+{
+    struct FRAME s;
+
+    s.kind = FRAME_DATA;
+    s.seq = frame_nr;
+    
+    s.ack = (frame_expected + MAX_SEQ) % (MAX_SEQ + 1);
+    memcpy(s.data, out_buf[frame_nr], PKT_LEN);
+
+    dbg_frame("Send DATA %d %d, ID %d\n", s.seq, s.ack, *(short *)s.data);
+
+    put_frame((unsigned char *)&s, 3 + PKT_LEN);
+    start_timer(frame_nr, DATA_TIMER);
+}
+
+/* 标记某帧已确认，并在可能时推动窗口左边界前移。 */
+static void mark_acked(unsigned char seq)
+{
+    if (between(ack_expected, seq, next_frame_to_send) && !acked[seq]) {
+        acked[seq] = 1;
+        stop_timer(seq);
+    }
+
+    while (nbuffered > 0 && acked[ack_expected]) {
+        acked[ack_expected] = 0;
+        nbuffered--;
+        inc(&ack_expected);
+    }
+}
+
+int main(int argc, char **argv)
+{
+    int event, arg;
+    struct FRAME f;
+    int len = 0;
+
+    protocol_init(argc, argv);
+    lprintf("Selective Repeat sliding window, build: " __DATE__"  "__TIME__"\n");
+    lprintf("MAX_SEQ=%d, WINDOW_SIZE=%d\n", MAX_SEQ, WINDOW_SIZE);
+
+    disable_network_layer();
+
+    for (;;) {
+        event = wait_for_event(&arg);
+
+        switch (event) {
+        case NETWORK_LAYER_READY:
+            /* 取一个分组，放入缓存，发送后推进发送窗口右边界。 */
+            
+            get_packet(out_buf[next_frame_to_send]);
+            acked[next_frame_to_send] = 0;
+            nbuffered++;
+            send_data_frame(next_frame_to_send);
+            inc(&next_frame_to_send);
+            break;
+
+        case PHYSICAL_LAYER_READY:
+            /* 物理层重新提供了一次发送机会。 */
+            phl_ready = 1;
+            break;
+
+        case FRAME_RECEIVED:
+            /* 收到一帧，先校验 CRC，再处理 ACK/NAK/DATA。 */
+            len = recv_frame((unsigned char *)&f, sizeof f);
+            if (len < 5 || crc32((unsigned char *)&f, len) != 0) {
+                dbg_event("**** Receiver Error, Bad CRC Checksum\n");
+                
+                if (no_nak)
+                    send_nak_frame(frame_expected);
+                break;
+            }
+
+            switch (f.kind) {
+            case FRAME_ACK:
+                /* 发送端逻辑：标记这一帧已经被确认。 */
+                dbg_frame("Recv ACK  %d\n", f.ack);
+                
+                mark_acked(f.ack);
+                break;
+
+            case FRAME_NAK:
+                /* 发送端逻辑：只重传被请求的那一帧。 */
+                dbg_frame("Recv NAK  %d\n", f.ack);
+                
+                if (between(ack_expected, f.ack, next_frame_to_send) && !acked[f.ack])
+                    send_data_frame(f.ack);
+                break;
+
+            case FRAME_DATA:
+                /* 既处理接收端的 DATA，也处理捎带回来的 ACK。 */
+                dbg_frame("Recv DATA %d %d, ID %d\n", f.seq, f.ack, *(short *)f.data);
+
+                
+                mark_acked(f.ack);
+
+                if (in_receive_window(f.seq)) {
+                    /* 窗口内帧先缓存、立即确认，再按序交付。 */
+                    
+                    if (f.seq != frame_expected && no_nak)
+                        send_nak_frame(frame_expected);
+
+                    if (!arrived[f.seq]) {
+                        arrived[f.seq] = 1;
+                        memcpy(in_buf[f.seq], f.data, len - 7);
+                    }
+
+                    
+                    send_ack_frame(f.seq);
+
+                    
+                    /* 只要形成连续按序的一段，就立即连续交付。 */
+                    while (arrived[frame_expected]) {
+                        put_packet(in_buf[frame_expected], len - 7);
+                        arrived[frame_expected] = 0;
+                        no_nak = 1;
+                        inc(&frame_expected);
+                        inc(&too_far);
+                    }
+                } else if (in_previous_window(f.seq)) {
+                    /* 旧重复帧不再交付，只重复发送 ACK。 */
+                    
+                    send_ack_frame(f.seq);
+                }
+                break;
+            }
+            break;
+
+        case DATA_TIMEOUT:
+            /* SR 超时规则：只重传当前超时的这一帧。 */
+            dbg_event("---- DATA %d timeout\n", arg);
+            
+            if (!acked[arg])
+                send_data_frame((unsigned char)arg);
+            break;
+        }
+
+        
+        /* 仅当发送窗口未满时，才重新打开网络层。 */
+        if (nbuffered < WINDOW_SIZE && phl_ready)
+            enable_network_layer();
+        else
+            disable_network_layer();
+    }
+}
+```
 
 ### 附录 2 复现实验命令
 
