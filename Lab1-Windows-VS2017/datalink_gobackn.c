@@ -280,6 +280,11 @@ int main(int argc, char **argv)
             break;
 
         case FRAME_RECEIVED:
+            /*
+            recv_frame 函数是一个物理层功能，用于接收帧数据。
+            它接受一个指向缓冲区的指针 buf 和缓冲区大小 size，
+            返回接收到的字节数。
+            */
             len = recv_frame((unsigned char *)&f, sizeof f);
             /*
              * 最短合法 ACK 帧长度 = kind(1) + ack(1) + crc(4) = 6。
