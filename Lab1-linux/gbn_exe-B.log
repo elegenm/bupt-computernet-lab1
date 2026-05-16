@@ -1,0 +1,17 @@
+000.000 =============================================================
+000.000                     Station B                               
+000.000 -------------------------------------------------------------
+000.000 Protocol.lib, version 4.0, jiangyanjun0718@bupt.edu.cn
+000.000 Channel: 8000 bps, 270 ms propagation delay, bit error rate 1.0E-04
+000.000 Log file "./gbn_exe-B.log", TCP port 59203, debug mask 0x00
+000.000 Station B is connecting station A (TCP port 59203) ... Done.
+000.381 New epoch: Fri May 15 13:27:54 2026
+000.381 =================================================================
+000.381 
+000.381 Go-Back-N sliding window, build: May 14 2026  20:55:56
+000.381 MAX_SEQ=7, WINDOW_SIZE=7
+003.457 .... 1 packets received, 735 bps, 9.19%, Err 5 (2.6e-04)
+005.606 .... 9 packets received, 3735 bps, 46.69%, Err 5 (1.4e-04)
+007.713 .... 15 packets received, 4362 bps, 54.53%, Err 5 (1.0e-04)
+011.069 .... 18 packets received, 3545 bps, 44.32%, Err 6 (8.5e-05)
+012.031 Quit.

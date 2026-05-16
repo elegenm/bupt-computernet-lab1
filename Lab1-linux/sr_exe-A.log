@@ -1,0 +1,17 @@
+000.000 =============================================================
+000.000                     Station A                               
+000.000 -------------------------------------------------------------
+000.000 Protocol.lib, version 4.0, jiangyanjun0718@bupt.edu.cn
+000.000 Channel: 8000 bps, 270 ms propagation delay, bit error rate 1.0E-04
+000.000 Log file "./sr_exe-A.log", TCP port 59233, debug mask 0x00
+000.000 Station A is waiting for station B on TCP port 59233 ... Done.
+000.866 New epoch: Fri May 15 13:34:46 2026
+000.866 =================================================================
+000.866 
+000.866 Selective Repeat sliding window, build: May 14 2026  21:34:28
+000.866 MAX_SEQ=7, WINDOW_SIZE=4
+004.115 .... 7 packets received, 4819 bps, 60.24%, Err 3 (1.3e-04)
+006.117 .... 8 packets received, 3292 bps, 41.15%, Err 5 (1.6e-04)
+009.095 .... 13 packets received, 3347 bps, 41.84%, Err 7 (1.4e-04)
+011.536 .... 18 packets received, 3546 bps, 44.32%, Err 8 (1.3e-04)
+012.023 Quit.

@@ -2,20 +2,14 @@
 000.000                     Station A                               
 000.000 -------------------------------------------------------------
 000.000 Protocol.lib, version 4.0, jiangyanjun0718@bupt.edu.cn
-000.000 Channel: 8000 bps, 270 ms propagation delay, bit error rate 1.0E-05
-000.000 Log file "./gobackn_current-A.log", TCP port 59204, debug mask 0x00
-000.000 Station A is waiting for station B on TCP port 59204 ... Done.
-000.245 New epoch: Tue May 12 20:14:24 2026
-000.245 =================================================================
-000.245 
-000.245 Go-Back-N sliding window, build: May 12 2026  20:10:12
-000.245 MAX_SEQ=7, WINDOW_SIZE=7
-002.675 .... 8 packets received, 7606 bps, 95.08%, Err 0 (0.0e+00)
-004.871 .... 16 packets received, 7533 bps, 94.16%, Err 0 (0.0e+00)
-007.911 .... 18 packets received, 4988 bps, 62.35%, Err 1 (1.8e-05)
-010.064 .... 26 packets received, 5580 bps, 69.75%, Err 1 (1.4e-05)
-012.228 .... 34 packets received, 5948 bps, 74.35%, Err 1 (1.1e-05)
-014.362 .... 42 packets received, 6215 bps, 77.68%, Err 1 (9.3e-06)
-016.609 .... 48 packets received, 6110 bps, 76.38%, Err 1 (8.3e-06)
-018.784 .... 56 packets received, 6280 bps, 78.50%, Err 1 (7.2e-06)
-020.027 Quit.
+000.000 Channel: 8000 bps, 270 ms propagation delay, bit error rate 1.0E-04
+000.000 Log file "./gobackn_current-A.log", TCP port 59203, debug mask 0x00
+000.000 Station A is waiting for station B on TCP port 59203 ... Done.
+000.218 New epoch: Thu May 14 21:24:49 2026
+000.218 =================================================================
+000.218 
+000.218 Go-Back-N sliding window, build: May 12 2026  20:10:12
+000.218 MAX_SEQ=7, WINDOW_SIZE=7
+005.177 .... 8 packets received, 3512 bps, 43.90%, Err 4 (1.2e-04)
+008.719 .... 10 packets received, 2495 bps, 31.19%, Err 6 (1.1e-04)
+012.030 Quit.
